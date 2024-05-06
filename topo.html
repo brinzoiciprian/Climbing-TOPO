@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Climbing Topo</title>
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 0;
+    }
+    h1 {
+        margin-top: 20px;
+        text-align: center;
+    }
+    p {
+        margin-bottom: 20px;
+        text-align: center;
+    }
+    canvas {
+        display: block;
+        margin: 0 auto;
+        border: 1px solid black;
+        width: 100%;
+        max-width: 800px; /* Set max-width to avoid stretching on larger screens */
+        height: auto;
+    }
+    #table-container {
+        width: 100%; /* Set the width of the table container to full page */
+        margin: 20px auto; /* Center the table container horizontally */
+        max-width: 800px; /* Set max-width to avoid stretching on larger screens */
+    }
+    table {
+        border-collapse: collapse;
+        width: 100%;
+    }
+    th, td {
+        border: 1px solid black;
+        padding: 8px;
+        text-align: left;
+        width: 50%; /* Set both columns to half the length */
+    }
+    th {
+        background-color: #f2f2f2;
+    }
+    .color-cell {
+        width: 30px;
+        height: 20px;
+    }
+    button {
+        display: block;
+        margin: 20px auto;
+        padding: 10px 20px;
+        background-color: #007bff;
+        color: #fff;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+    }
+    button:hover {
+        background-color: #0056b3;
+    }
+
+    /* Media queries for smaller screens */
+    @media only screen and (max-width: 600px) {
+        canvas, #table-container {
+            width: 90%; /* Adjust width for smaller screens */
+            margin: 20px auto; /* Center the table container horizontally */
+        }
+    }
+</style>
+</head>
+<body>
+<h1>Climbing Topo</h1>
+<p>Tap, click, or drag to draw climbing routes on the wall:</p>
+<input type="file" accept="image/*" id="imageInput">
+<input type="color" id="colorPicker" value="#000000"> <!-- Color picker -->
+<button id="saveButton">Save Drawing</button>
+<button id="saveTopoButton">Save Topo</button>
+<canvas id="canvas"></canvas>
+<div id="table-container">
+    <table id="lineTable">
+        <tr>
+            <th>Line Number</th>
+            <th>Line Name</th>
+            <th class="color-cell" style="width: 10%;">Color</th>
+        </tr>
+    </table>
+</div>
+<script>
+    // Define variables
+    let isDrawing = false;
+    let line = []; // Store the current line
+    let lines = []; // Store all drawn lines
+    let lineColor = '#000000'; // Default line color is black
+    let uploadedImageLoaded = false;
+    let uploadedImage = null;
+    let lineNumber = 1; // Initialize line number
+
+
+    // Function to draw a line on the canvas
+    function drawLine(ctx, line, color, number) {
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.moveTo(line[0].x, line[0].y);
+        for (let i = 1; i < line.length; i++) {
+            ctx.lineTo(line[i].x, line[i].y);
+        }
+        ctx.stroke();
+
+
+        // Draw yellow circle at the end of the line
+        const endX = line[line.length - 1].x;
+        const endY = line[line.length - 1].y;
+        drawEmptyCircle(ctx, endX, endY);
+
+
+        // Draw line number at the base of the line
+        ctx.fillStyle = 'black';
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(number, line[0].x, line[0].y + 20);
+    }
+
+
+    // Function to draw a yellow circle with black margins
+    function drawEmptyCircle(ctx, x, y) {
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, Math.PI * 2);
+        ctx.strokeStyle = 'black';
+        ctx.fillStyle = 'yellow';
+        ctx.fill();
+        ctx.stroke();
+    }
+
+
+    // Function to handle start drawing event
+    function startDrawing(e, ctx, canvas) {
+        if (!uploadedImageLoaded) return;
+        if (e.type === 'click') {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            drawCircle(ctx, x, y);
+            lines.push({ type: 'circle', x, y }); // Save circle coordinates
+            updateLineTable();
+            return;
+        }
+        isDrawing = true;
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        line = [{ x, y }];
+    }
+
+
+    // Function to handle drawing event
+    function draw(e, ctx, canvas) {
+        if (!uploadedImageLoaded || !isDrawing) return;
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        line.push({ x, y });
+        redraw(ctx);
+    }
+
+
+    // Function to redraw canvas
+    function redraw(ctx) {
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        if (uploadedImageLoaded) {
+            ctx.drawImage(uploadedImage, 0, 0, ctx.canvas.width, ctx.canvas.height);
+        }
+        for (const savedLine of lines) {
+            if (savedLine.type === 'line') {
+                drawLine(ctx, savedLine.line, savedLine.color, savedLine.number);
+            } else if (savedLine.type === 'circle') {
+                drawEmptyCircle(ctx, savedLine.x, savedLine.y);
+            }
+        }
+        if (line.length > 1) {
+            drawLine(ctx, line, lineColor, lineNumber); // Draw current line with line number
+        }
+    }
+
+
+    // Function to handle end drawing event
+    function endDrawing() {
+        if (!isDrawing) return;
+        isDrawing = false;
+    }
+
+
+    // Function to handle image input
+    function handleImageInput(e, ctx, canvas) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            uploadedImage = new Image();
+            uploadedImage.onload = function() {
+                uploadedImageLoaded = true;
+                ctx.drawImage(uploadedImage, 0, 0, canvas.width, canvas.height);
+            };
+            uploadedImage.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+
+
+    // Function to change line color
+    function changeLineColor() {
+        lineColor = document.getElementById('colorPicker').value;
+    }
+
+
+    // Function to update line table
+    function updateLineTable() {
+        const table = document.getElementById('lineTable');
+        const newRow = table.insertRow(-1);
+        const numberCell = newRow.insertCell(0); // Insert cell for line number
+        const nameCell = newRow.insertCell(1); // Insert cell for line name
+        const colorCell = newRow.insertCell(2);
+        const colorDiv = document.createElement('div');
+        colorDiv.classList.add('color-cell');
+        colorDiv.style.backgroundColor = lineColor;
+        
+        // Get the last drawn line from the array
+        const lastDrawnLine = lines[lines.length - 1];
+        
+        if (lastDrawnLine.type === 'line') {
+            numberCell.innerHTML = lastDrawnLine.number; // Display line number in the table
+            nameCell.innerHTML = lastDrawnLine.name; // Display line name in the table
+        } else {
+            numberCell.innerHTML = ''; // No line number for circle
+            nameCell.innerHTML = ''; // No line name for circle
+        }
+
+
+        colorCell.appendChild(colorDiv);
+    }
+
+
+    // Function to save drawing
+    function saveDrawing() {
+        const lineName = prompt('Enter line name:');
+        if (lineName) {
+            lines.push({ type: 'line', name: lineName, line: [...line], color: lineColor, number: lineNumber });
+            updateLineTable();
+            lines.push({ type: 'circle', x: line[line.length - 1].x, y: line[line.length - 1].y }); // Save circle coordinates
+            lineNumber++; // Increment line number
+        }
+        line = [];
+    }
+
+
+    // Function to save topo as JPEG image
+    function saveTopo() {
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const image = canvas.toDataURL('image/jpeg', 1.0);
+        const link = document.createElement('a');
+        link.download = 'climbing_topo.jpg';
+        link.href = image;
+        link.click();
+    }
+
+
+    // Get canvas and context after DOM content is loaded
+    document.addEventListener('DOMContentLoaded', () => {
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+
+        // Attach event listeners for drawing
+        canvas.addEventListener('mousedown', (e) => startDrawing(e, ctx, canvas));
+        canvas.addEventListener('mousemove', (e) => draw(e, ctx, canvas));
+        canvas.addEventListener('mouseup', endDrawing);
+        canvas.addEventListener('mouseout', endDrawing);
+        canvas.addEventListener('click', (e) => startDrawing(e, ctx, canvas)); // Click event for drawing circles
+
+
+        // Attach touch event listeners for drawing
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            startDrawing(e.touches[0], ctx, canvas);
+        });
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            draw(e.touches[0], ctx, canvas);
+        });
+        canvas.addEventListener('touchend', endDrawing);
+        canvas.addEventListener('touchcancel', endDrawing);
+
+
+        // Handle image input
+        const imageInput = document.getElementById('imageInput');
+        imageInput.addEventListener('change', (e) => handleImageInput(e, ctx, canvas));
+        
+        // Change line color
+        document.getElementById('colorPicker').addEventListener('change', changeLineColor);
+
+
+        // Save drawing button click event
+        document.getElementById('saveButton').addEventListener('click', saveDrawing);
+
+
+        // Save topo button click event
+        document.getElementById('saveTopoButton').addEventListener('click', saveTopo);
+    });
+</script>
+</body>
+</html>
